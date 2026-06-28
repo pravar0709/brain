@@ -11,7 +11,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 app = Flask(__name__)
-CORS(app)  # This is enough — no need for after_request or handle_options
+CORS(app, origins="*")  # explicit wildcard
 
 # ── CORS headers (replaces the broken after_request + handle_options) ──
 @app.after_request
