@@ -10,7 +10,7 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet import preprocess_input
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 # --- ROBUST LOADING FIX ---
 # Strip 'quantization_config' at the Keras config level before deserialization
