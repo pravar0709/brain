@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 from flask import Flask, request, jsonify, make_response
 from PIL import Image
@@ -11,17 +12,14 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 app = Flask(__name__)
 
-# ── CORS: manually inject headers on EVERY response ──
-def corsify(response, status=200, mimetype='application/json'):
-    response = make_response(response, status)
-    response.headers['Access-Control-Allow-Origin']  = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    if mimetype:
-        response.headers['Content-Type'] = mimetype
-    return response
+def corsify(response, status=200):
+    r = make_response(response, status)
+    r.headers['Access-Control-Allow-Origin']  = '*'
+    r.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    r.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return r
 
-# ── Model loading ──
+# ── Patch Dense layer ──
 original_dense_from_config = tf.keras.layers.Dense.from_config
 
 @classmethod
@@ -31,9 +29,28 @@ def patched_dense_from_config(cls, config):
 
 tf.keras.layers.Dense.from_config = patched_dense_from_config
 
-MODELS_DIR    = os.path.join(os.path.dirname(__file__), 'models')
-alz_model     = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False)
-tumor_model   = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'),    compile=False)
+# ── Load models with explicit error logging ──
+MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
+
+print("=== Loading alzheimer model...", flush=True)
+try:
+    alz_model = load_model(
+        os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False
+    )
+    print("=== Alzheimer model loaded OK", flush=True)
+except Exception as e:
+    print(f"=== FATAL: alzheimer_model failed to load: {e}", flush=True)
+    sys.exit(1)
+
+print("=== Loading tumor model...", flush=True)
+try:
+    tumor_model = load_model(
+        os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False
+    )
+    print("=== Tumor model loaded OK", flush=True)
+except Exception as e:
+    print(f"=== FATAL: tumor_model failed to load: {e}", flush=True)
+    sys.exit(1)
 
 ALZ_CLASSES   = ['Alzheimer', 'Tumor']
 TUMOR_CLASSES = ['Alzheimer', 'Tumor']
@@ -53,8 +70,7 @@ def health():
 
 @app.route('/predict', methods=['OPTIONS'])
 def predict_preflight():
-    # Browser sends OPTIONS before POST — must return 200 with CORS headers
-    return corsify(jsonify({"status": "ok"}))
+    return corsify(jsonify({"ok": True}))
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -65,12 +81,10 @@ def predict():
     try:
         img           = Image.open(file.stream)
         processed_img = prepare_image(img, IMG_SIZE)
-
-        alz_pred   = alz_model.predict(processed_img)
-        tumor_pred = tumor_model.predict(processed_img)
-
-        alz_idx   = np.argmax(alz_pred[0])
-        tumor_idx = np.argmax(tumor_pred[0])
+        alz_pred      = alz_model.predict(processed_img)
+        tumor_pred    = tumor_model.predict(processed_img)
+        alz_idx       = np.argmax(alz_pred[0])
+        tumor_idx     = np.argmax(tumor_pred[0])
 
         return corsify(jsonify({
             "alzheimers_prediction": {
