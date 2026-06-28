@@ -25,28 +25,31 @@ def patched_dense_from_config(cls, config):
 
 tf.keras.layers.Dense.from_config = patched_dense_from_config
 
-# ── Load models with explicit error logging ──
 MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
 
-print("=== Loading alzheimer model...", flush=True)
-try:
-    alz_model = load_model(
-        os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False
-    )
-    print("=== Alzheimer model loaded OK", flush=True)
-except Exception as e:
-    print(f"=== FATAL: alzheimer_model failed to load: {e}", flush=True)
-    sys.exit(1)
+# Global variables to hold models
+alz_model = None
+tumor_model = None
 
-print("=== Loading tumor model...", flush=True)
-try:
-    tumor_model = load_model(
-        os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False
-    )
-    print("=== Tumor model loaded OK", flush=True)
-except Exception as e:
-    print(f"=== FATAL: tumor_model failed to load: {e}", flush=True)
-    sys.exit(1)
+def get_models():
+    """Lazy loads models only when first requested so Render deploy doesn't timeout."""
+    global alz_model, tumor_model
+    if alz_model is None or tumor_model is None:
+        print("=== Lazy Loading models (This may take a minute) ===", flush=True)
+        try:
+            alz_model = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False)
+            print("=== Alzheimer model loaded OK ===", flush=True)
+        except Exception as e:
+            print(f"=== FATAL: alzheimer_model failed to load: {e}", flush=True)
+
+        try:
+            tumor_model = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False)
+            print("=== Tumor model loaded OK ===", flush=True)
+        except Exception as e:
+            print(f"=== FATAL: tumor_model failed to load: {e}", flush=True)
+            
+    return alz_model, tumor_model
+
 
 ALZ_CLASSES   = ['Alzheimer', 'Tumor']
 TUMOR_CLASSES = ['Alzheimer', 'Tumor']
@@ -70,11 +73,20 @@ def predict():
         return jsonify({"error": "No image file uploaded"}), 400
 
     file = request.files['image']
+    
     try:
+        # Request models (Will load from disk on first upload, instant on next uploads)
+        a_model, t_model = get_models()
+        
+        if not a_model or not t_model:
+            return jsonify({"error": "Models failed to load on the server."}), 500
+
         img           = Image.open(file.stream)
         processed_img = prepare_image(img, IMG_SIZE)
-        alz_pred      = alz_model.predict(processed_img)
-        tumor_pred    = tumor_model.predict(processed_img)
+        
+        alz_pred      = a_model.predict(processed_img)
+        tumor_pred    = t_model.predict(processed_img)
+        
         alz_idx       = np.argmax(alz_pred[0])
         tumor_idx     = np.argmax(tumor_pred[0])
 
@@ -94,5 +106,5 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
