@@ -5,3 +5,4 @@ pillow
 numpy
 tensorflow-cpu
 Flask-Cors==4.0.0
+gunicorn==21.2.0
