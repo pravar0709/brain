@@ -11,23 +11,21 @@ app = Flask(__name__)
 CORS(app)
 
 # --- ROBUST LOADING FIX ---
-# We define a custom Dense layer that explicitly ignores the 
-# 'quantization_config' argument that is causing the crash.
-@tf.keras.utils.register_keras_serializable()
-class FixedDense(tf.keras.layers.Dense):
-    def __init__(self, **kwargs):
-        kwargs.pop('quantization_config', None)
-        super().__init__(**kwargs)
+# Strip 'quantization_config' at the Keras config level before deserialization
+original_dense_from_config = tf.keras.layers.Dense.from_config
 
-# 1. Load models using custom_object_scope
-# This tells Keras to use our 'FixedDense' whenever it encounters a 'Dense' layer in the model file.
+@classmethod
+def patched_dense_from_config(cls, config):
+    config.pop('quantization_config', None)
+    return original_dense_from_config.__func__(cls, config)
+
+tf.keras.layers.Dense.from_config = patched_dense_from_config
+
+# Load models AFTER patching
 MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
+alz_model = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False)
+tumor_model = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False)
 
-with tf.keras.utils.custom_object_scope({'Dense': FixedDense}):
-    alz_model = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False)
-    tumor_model = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False)
-
-# Define classes matching your training variables
 ALZ_CLASSES = ['Alzheimer', 'Tumor']
 TUMOR_CLASSES = ['Alzheimer', 'Tumor']
 IMG_SIZE = (224, 224)
