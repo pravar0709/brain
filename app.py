@@ -10,23 +10,13 @@ from tensorflow.keras.applications.efficientnet import preprocess_input
 app = Flask(__name__)
 CORS(app)  # Allows your HTML frontend to talk to this API safely
 
-# --- ADDED: Custom Object Scope to ignore quantization_config ---
-@tf.keras.utils.register_keras_serializable()
-class FixedDense(tf.keras.layers.Dense):
-    def get_config(self):
-        config = super().get_config()
-        config.pop('quantization_config', None)
-        return config
-
-custom_objects = {'Dense': FixedDense}
-# ----------------------------------------------------------------
-
-# 1. Load your trained models with the custom scope
+# 1. Load your trained models
+# Using compile=False bypasses the deserialization of the optimizer 
+# and the layers' configuration, which is where the quantization error occurs.
 MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
 
-with tf.keras.utils.custom_object_scope(custom_objects):
-    alz_model = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'))
-    tumor_model = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'))
+alz_model = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False)
+tumor_model = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False)
 
 # Define classes matching your exact training variables
 ALZ_CLASSES = ['Alzheimer', 'Tumor']
