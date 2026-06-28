@@ -4,3 +4,4 @@ gunicorn
 pillow
 numpy
 tensorflow-cpu
+Flask-Cors==4.0.0
