@@ -11,21 +11,19 @@ app = Flask(__name__)
 CORS(app)
 
 # --- ROBUST LOADING FIX ---
-# Define a custom scope that handles the 'quantization_config' error
-# by essentially telling Keras to ignore the parameter if it is unrecognized.
+# We define a custom Dense layer that explicitly ignores the 
+# 'quantization_config' argument that is causing the crash.
+@tf.keras.utils.register_keras_serializable()
 class FixedDense(tf.keras.layers.Dense):
-    def get_config(self):
-        config = super().get_config()
-        config.pop('quantization_config', None)
-        return config
+    def __init__(self, **kwargs):
+        kwargs.pop('quantization_config', None)
+        super().__init__(**kwargs)
 
-# Map the Dense layer to our safe version
-custom_objects = {'Dense': FixedDense}
-
-# 1. Load models using custom_object_scope to bypass serialization issues
+# 1. Load models using custom_object_scope
+# This tells Keras to use our 'FixedDense' whenever it encounters a 'Dense' layer in the model file.
 MODELS_DIR = os.path.join(os.path.dirname(__file__), 'models')
 
-with tf.keras.utils.custom_object_scope(custom_objects):
+with tf.keras.utils.custom_object_scope({'Dense': FixedDense}):
     alz_model = load_model(os.path.join(MODELS_DIR, 'alzheimer_model.keras'), compile=False)
     tumor_model = load_model(os.path.join(MODELS_DIR, 'tumor_model.keras'), compile=False)
 
